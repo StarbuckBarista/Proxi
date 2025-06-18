@@ -22,7 +22,7 @@ export const generatePlan = functions.https.onCall(async (request: functions.htt
     try {
 
         const response = await axios.post(
-            "httpps://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", 
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + process.env.GEMINI_API_KEY, 
             {
                 contents: [{
                     parts: [{
@@ -32,8 +32,7 @@ export const generatePlan = functions.https.onCall(async (request: functions.htt
             },
             {
                 headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${functions.config().gemini.api_key}`
+                    "Content-Type": "application/json"
                 }
             }
         );
