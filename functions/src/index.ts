@@ -7,13 +7,41 @@
  * See a full list of supported triggers at https://firebase.google.com/docs/functions
  */
 
-import {onRequest} from "firebase-functions/v2/https";
-import * as logger from "firebase-functions/logger";
+import * as functions from "firebase-functions";
+import axios from "axios";
 
-// Start writing functions
-// https://firebase.google.com/docs/functions/typescript
+interface GeneratePlanRequest {
+    goals: string[];
+}
 
-// export const helloWorld = onRequest((request, response) => {
-//   logger.info("Hello logs!", {structuredData: true});
-//   response.send("Hello from Firebase!");
-// });
+export const generatePlan = functions.https.onCall(async (request: functions.https.CallableRequest<GeneratePlanRequest>) => {
+
+    const userGoals = request.data.goals;
+    const prompt = `Make a daily plan based on the following user goals: ${userGoals.join(", ")}.`;
+
+    try {
+
+        const response = await axios.post(
+            "httpps://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", 
+            {
+                contents: [{
+                    parts: [{
+                        text: prompt
+                    }]
+                }]
+            },
+            {
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${functions.config().gemini.api_key}`
+                }
+            }
+        );
+
+        return response.data;
+    } catch (error) {
+
+        console.error("Gemini API Error:", error);
+        throw new functions.https.HttpsError("internal", "Gemini API Error");
+    }
+});
