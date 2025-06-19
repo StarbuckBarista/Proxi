@@ -9,6 +9,7 @@
 
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
+import { Timestamp } from "firebase-admin/firestore";
 import axios from "axios";
 
 admin.initializeApp();
@@ -17,10 +18,71 @@ interface GeneratePlanRequest {
     goals: string[];
 }
 
+function formatDate (timestamp: Timestamp) {
+
+    return timestamp.toDate().toLocaleString("en-US", {
+        weekday: 'short',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZone: 'America/Chicago'
+    });
+}
+
+function formatPrompt (goals: any[], reminders: any[], calendarEvents: any[]) {
+
+    const formattedGoals = goals.map((goal, i) => `${i + 1}. ${goal}`);
+
+    const formattedReminders = reminders.map((reminder, i) => {
+        const due = reminder.due ? `, due: ${formatDate(reminder.due)}` : '';
+        const priority = reminder.priority ? `, priority: ${reminder.priority}` : '';
+        const notes = reminder.notes ? `, notes: ${reminder.notes}` : '';
+        const location = reminder.location ? `, location: ${reminder.location}` : '';
+        return `${i + 1}. "${reminder.title}"${due}${priority}${notes}${location}`;
+    });
+
+    const formattedEvents = calendarEvents.map((event, i) => {
+        const start = formatDate(event.starts);
+        const end = event.ends ? formatDate(event.ends) : "N/A";
+        const travel = event.travelTime ? `, travel time: ${event.travelTime} mins` : '';
+        const allDay = event.allDay ? " (All-day event)" : "";
+        return `${i + 1}. "${event.title}" — ${start} to ${end}, location: ${event.location || "N/A"}${travel}${allDay}`;
+    });
+
+    return `
+You are a helpful assistant named Proxi. Create a realistic and productive daily schedule based on the following user goals, calendar events, and reminders.
+
+Include specific time blocks where appropriate. Respect fixed calendar events. Fit in goals and reminders logically around them, considering travel time, priority, and deadlines.
+
+### User Goals:
+${formattedGoals.join('\n')}
+
+### Calendar Events:
+${formattedEvents.join('\n')}
+
+### Reminders:
+${formattedReminders.join('\n')}
+`;
+}
+
 export const generatePlan = functions.https.onCall(async (request: functions.https.CallableRequest<GeneratePlanRequest>) => {
 
     const userGoals = request.data.goals;
-    const prompt = `Make a daily plan based on the following user goals: ${userGoals.join(", ")}.`;
+
+    const now = new Date();
+    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+    const remindersSnapshot = await admin.firestore()
+        .collection("reminders")
+        .where("due", ">=", Timestamp.fromDate(now))
+        .where("due", "<", Timestamp.fromDate(tomorrow))
+        .get();
+
+    const calendarEventsSnapshot = await admin.firestore()
+        .collection("calendarEvents")
+        .where("starts", ">=", Timestamp.fromDate(now))
+        .where("starts", "<", Timestamp.fromDate(tomorrow))
+        .get();
 
     try {
 
@@ -29,7 +91,7 @@ export const generatePlan = functions.https.onCall(async (request: functions.htt
             {
                 contents: [{
                     parts: [{
-                        text: prompt
+                        text: formatPrompt(userGoals, remindersSnapshot.docs.map(doc => doc.data()),  calendarEventsSnapshot.docs.map(doc => doc.data()))
                     }]
                 }]
             },
@@ -63,8 +125,7 @@ export const receiveReminder = functions.https.onRequest(async (request, respons
         notes,
         due: new Date(due),
         location,
-        priority,
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
+        priority
     });
 
     response.status(200).send("Reminder Received");
@@ -87,8 +148,7 @@ export const receiveCalendarEvent = functions.https.onRequest(async (request, re
         starts: new Date(starts),
         ends: new Date(ends),
         travelTime: travelTime,
-        calendar,
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
+        calendar
     });
 
     response.status(200).send("Calendar Event Received");
