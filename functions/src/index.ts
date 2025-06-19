@@ -8,7 +8,10 @@
  */
 
 import * as functions from "firebase-functions";
+import * as admin from "firebase-admin";
 import axios from "axios";
+
+admin.initializeApp();
 
 interface GeneratePlanRequest {
     goals: string[];
@@ -43,4 +46,50 @@ export const generatePlan = functions.https.onCall(async (request: functions.htt
         console.error("Gemini API Error:", error);
         throw new functions.https.HttpsError("internal", "Gemini API Error");
     }
+});
+
+export const receiveReminder = functions.https.onRequest(async (request, response) => {
+
+    if (request.method !== "POST") {
+
+        response.status(405).send("Method Not Allowed");
+        return;
+    }
+
+    const { title, notes, due, location, priority } = request.body;
+    
+    await admin.firestore().collection("reminders").add({
+        title,
+        notes,
+        due: new Date(due),
+        location,
+        priority,
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    response.status(200).send("Reminder Received");
+});
+
+export const receiveCalendarEvent = functions.https.onRequest(async (request, response) => {
+
+    if (request.method !== "POST") {
+
+        response.status(405).send("Method Not Allowed");
+        return;
+    }
+
+    const { title, location, allDay, starts, ends, travelTime, calendar } = request.body;
+
+    await admin.firestore().collection("calendarEvents").add({
+        title,
+        location,
+        allDay: allDay,
+        starts: new Date(starts),
+        ends: new Date(ends),
+        travelTime: travelTime,
+        calendar,
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    response.status(200).send("Calendar Event Received");
 });
