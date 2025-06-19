@@ -35,18 +35,16 @@ function formatPrompt (goals: any[], reminders: any[], calendarEvents: any[]) {
 
     const formattedReminders = reminders.map((reminder, i) => {
         const due = reminder.due ? `, due: ${formatDate(reminder.due)}` : '';
-        const priority = reminder.priority ? `, priority: ${reminder.priority}` : '';
         const notes = reminder.notes ? `, notes: ${reminder.notes}` : '';
-        const location = reminder.location ? `, location: ${reminder.location}` : '';
-        return `${i + 1}. "${reminder.title}"${due}${priority}${notes}${location}`;
+        const completed = reminder.completed ? ' (Completed)' : '';
+        return `${i + 1}. "${reminder.title}"${due}${notes}${completed}`;
     });
 
     const formattedEvents = calendarEvents.map((event, i) => {
         const start = formatDate(event.starts);
         const end = event.ends ? formatDate(event.ends) : "N/A";
-        const travel = event.travelTime ? `, travel time: ${event.travelTime} mins` : '';
         const allDay = event.allDay ? " (All-day event)" : "";
-        return `${i + 1}. "${event.title}" — ${start} to ${end}, location: ${event.location || "N/A"}${travel}${allDay}`;
+        return `${i + 1}. "${event.title}" — ${start} to ${end}, location: ${event.location || "N/A"}${allDay}`;
     });
 
     return `
@@ -71,6 +69,7 @@ export const generatePlan = functions.https.onCall(async (request: functions.htt
 
     const now = new Date();
     const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const nextWeek = new Date(now.getTime() + 24 * 7 * 60 * 60 * 1000);
 
     const remindersSnapshot = await admin.firestore()
         .collection("reminders")
@@ -81,7 +80,7 @@ export const generatePlan = functions.https.onCall(async (request: functions.htt
     const calendarEventsSnapshot = await admin.firestore()
         .collection("calendarEvents")
         .where("starts", ">=", Timestamp.fromDate(now))
-        .where("starts", "<", Timestamp.fromDate(tomorrow))
+        .where("starts", "<", Timestamp.fromDate(nextWeek))
         .get();
 
     try {
@@ -110,7 +109,7 @@ export const generatePlan = functions.https.onCall(async (request: functions.htt
     }
 });
 
-export const receiveReminder = functions.https.onRequest(async (request, response) => {
+export const postReminder = functions.https.onRequest(async (request, response) => {
 
     if (request.method !== "POST") {
 
@@ -118,20 +117,21 @@ export const receiveReminder = functions.https.onRequest(async (request, respons
         return;
     }
 
-    const { title, notes, due, location, priority } = request.body;
+    const { title, notes, due, completed } = request.body;
+    const hash = `${title}-${due}`;
     
-    await admin.firestore().collection("reminders").add({
+    const docRef = admin.firestore().collection("reminders").doc(hash);
+    await docRef.set({
         title,
         notes,
         due: new Date(due),
-        location,
-        priority
+        completed
     });
 
     response.status(200).send("Reminder Received");
 });
 
-export const receiveCalendarEvent = functions.https.onRequest(async (request, response) => {
+export const postCalendarEvent = functions.https.onRequest(async (request, response) => {
 
     if (request.method !== "POST") {
 
@@ -139,15 +139,16 @@ export const receiveCalendarEvent = functions.https.onRequest(async (request, re
         return;
     }
 
-    const { title, location, allDay, starts, ends, travelTime, calendar } = request.body;
+    const { title, location, allDay, starts, ends, calendar } = request.body;
+    const hash = `${title}-${starts}`;
 
-    await admin.firestore().collection("calendarEvents").add({
+    const docRef = admin.firestore().collection("calendarEvents").doc(hash);
+    await docRef.set({
         title,
         location,
         allDay: allDay,
         starts: new Date(starts),
         ends: new Date(ends),
-        travelTime: travelTime,
         calendar
     });
 
